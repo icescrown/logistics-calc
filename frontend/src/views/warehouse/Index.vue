@@ -203,22 +203,18 @@ const warehouseRules = {
 // 获取仓库列表
 const getWarehouses = async () => {
   try {
-    console.log('开始获取仓库列表');
-    const params = {
-      page: currentPage.value,
-      page_size: pageSize.value,
-      keyword: searchQuery.value,
-    };
-    console.log('请求参数:', params);
-    const result = await api.get('/warehouse', { params });
-    console.log('响应结果:', result);
-    warehouses.value = Array.isArray(result.list) ? result.list : [];
-    total.value = result.total || 0;
-    console.log('处理后的数据:', warehouses.value, total.value);
-  } catch (error) {
-    console.error('获取仓库列表失败:', error);
-    ElMessage.error('获取仓库列表失败');
-  }
+      const params = {
+        page: currentPage.value,
+        page_size: pageSize.value,
+        keyword: searchQuery.value
+      };
+      const result = await api.get('/warehouse', { params });
+      warehouses.value = result.list || [];
+      total.value = result.total || 0;
+    } catch (error) {
+      ElMessage.error('获取仓库列表失败');
+      console.error('获取仓库列表失败:', error);
+    }
 };
 
 // 搜索

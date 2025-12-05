@@ -35,6 +35,7 @@
       >
         <el-table-column type="selection" width="55"></el-table-column>
         <el-table-column prop="id" label="ID" width="80" sortable></el-table-column>
+        <el-table-column prop="warehouse.name" label="仓库" width="120"></el-table-column>
         <el-table-column prop="carrier.name" label="承运商" width="120"></el-table-column>
         <el-table-column prop="logistics_method.name" label="物流方式" width="150"></el-table-column>
         <el-table-column prop="region.name" label="区域" width="120"></el-table-column>
@@ -137,6 +138,22 @@
       >
         <el-row :gutter="20">
           <el-col :span="12">
+            <el-form-item label="仓库" prop="warehouse_id">
+              <el-select
+                v-model="quotationForm.warehouse_id"
+                placeholder="请选择仓库"
+                clearable
+              >
+                <el-option
+                  v-for="warehouse in warehouses"
+                  :key="warehouse.id"
+                  :label="warehouse.name"
+                  :value="warehouse.id"
+                ></el-option>
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
             <el-form-item label="承运商" prop="carrier_id">
               <el-select
                 v-model="quotationForm.carrier_id"
@@ -152,6 +169,8 @@
               </el-select>
             </el-form-item>
           </el-col>
+        </el-row>
+        <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="物流方式" prop="logistics_method_id">
               <el-select
@@ -168,8 +187,6 @@
               </el-select>
             </el-form-item>
           </el-col>
-        </el-row>
-        <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="区域" prop="region_id">
               <el-select
@@ -360,6 +377,7 @@ const selectedQuotations = ref<any[]>([]);
 const carriers = ref<any[]>([]);
 const logisticsMethods = ref<any[]>([]);
 const regions = ref<any[]>([]);
+const warehouses = ref<any[]>([]);
 
 // 弹窗状态
 const dialogVisible = ref(false);
@@ -375,6 +393,7 @@ const quotationForm = reactive({
   carrier_id: '',
   logistics_method_id: '',
   region_id: '',
+  warehouse_id: '',
   weight_ranges: [
     {
       weight_from: 0,
@@ -400,6 +419,9 @@ const quotationRules = {
   ],
   region_id: [
     { required: true, message: '请选择区域', trigger: 'blur' },
+  ],
+  warehouse_id: [
+    { required: true, message: '请选择仓库', trigger: 'blur' },
   ],
   // 重量范围验证将在提交时进行，这里移除旧的验证规则
   // base_price验证已移至重量范围验证中
@@ -453,6 +475,10 @@ const getBaseData = async () => {
     // 获取区域列表
     const regionsResult = await api.get('/region', { params: { page: 1, page_size: 100 } });
     regions.value = Array.isArray(regionsResult.list) ? regionsResult.list : [];
+    
+    // 获取仓库列表
+    const warehousesResult = await api.get('/warehouse', { params: { page: 1, page_size: 100 } });
+    warehouses.value = Array.isArray(warehousesResult.list) ? warehousesResult.list : [];
   } catch (error) {
     ElMessage.error('获取基础数据失败');
   }
@@ -513,7 +539,8 @@ const showEditDialog = (row: any) => {
   Object.assign(quotationForm, {
     ...row,
     weight_ranges: formattedWeightRanges,
-    discount: parseFloat(row.discount) || 1.00
+    discount: parseFloat(row.discount) || 1.00,
+    warehouse_id: row.warehouse?.id || row.warehouse_id || row.warehouseId || ''
   });
   dialogVisible.value = true;
 };
@@ -528,6 +555,7 @@ const resetForm = () => {
     carrier_id: '',
     logistics_method_id: '',
     region_id: '',
+    warehouse_id: '',
     weight_ranges: [
       {
         weight_from: 0,
@@ -638,18 +666,15 @@ const handleSubmit = async () => {
     await quotationFormRef.value.validate();
     submitting.value = true;
     
-    // Debug: Log the data being sent
-    console.log('Sending quotation data:', quotationForm);
-    
     if (quotationForm.id) {
-      // 编辑
-      await api.put(`/quotation/${quotationForm.id}`, quotationForm);
-      ElMessage.success('报价编辑成功');
-    } else {
-      // 新增
-      await api.post('/quotation', quotationForm);
-      ElMessage.success('报价新增成功');
-    }
+        // 编辑
+        await api.put(`/quotation/${quotationForm.id}`, quotationForm);
+        ElMessage.success('报价编辑成功');
+      } else {
+        // 新增
+        await api.post('/quotation', quotationForm);
+        ElMessage.success('报价新增成功');
+      }
     
     dialogVisible.value = false;
     getQuotations();

@@ -4,6 +4,7 @@ import Quotation from '../models/Quotation';
 import Carrier from '../models/Carrier';
 import LogisticsMethod from '../models/LogisticsMethod';
 import Region from '../models/Region';
+import Warehouse from '../models/Warehouse';
 import AdditionalFee from '../models/AdditionalFee';
 import QuotationAdditionalFee from '../models/QuotationAdditionalFee';
 import QuotationWeightRange from '../models/QuotationWeightRange';
@@ -30,6 +31,7 @@ const quotationController = {
           { model: Carrier, attributes: ['id', 'name'], as: 'carrier' },
           { model: LogisticsMethod, attributes: ['id', 'name'], as: 'logistics_method' },
           { model: Region, attributes: ['id', 'name'], as: 'region' },
+          { model: Warehouse, attributes: ['id', 'name', 'code'], as: 'warehouse' },
           { model: QuotationWeightRange, as: 'quotation_weight_ranges' }
         ],
         order: [['create_time', 'DESC']],
@@ -48,7 +50,7 @@ const quotationController = {
       });
     } catch (error) {
       console.error('获取报价失败:', error);
-      res.status(500).json({ status: 'error', message: 'Failed to get quotations', error: error instanceof Error ? error.message : String(error) });
+      res.status(500).json({ status: 'error', message: '获取报价失败', error: error instanceof Error ? error.message : String(error) });
     }
   },
 
@@ -61,6 +63,7 @@ const quotationController = {
           { model: Carrier, as: 'carrier' },
           { model: LogisticsMethod, as: 'logistics_method' },
           { model: Region, as: 'region' },
+          { model: Warehouse, as: 'warehouse' },
           {
             model: QuotationAdditionalFee,
             as: 'quotation_additional_fees',
@@ -70,19 +73,19 @@ const quotationController = {
         ],
       });
       if (!quotation) {
-        res.status(404).json({ status: 'error', message: 'Quotation not found' });
+        res.status(404).json({ status: 'error', message: '未找到报价信息' });
         return;
       }
       res.status(200).json({ status: 'success', data: quotation });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: 'Failed to get quotation' });
+      res.status(500).json({ status: 'error', message: '获取报价失败' });
     }
   },
 
   // 根据条件获取报价
   searchQuotations: async (req: express.Request, res: express.Response): Promise<void> => {
     try {
-      const { carrier_id, logistics_method_id, region_id, weight, volume, effective_date } = req.query;
+      const { carrier_id, logistics_method_id, region_id, warehouse_id, weight, volume, effective_date } = req.query;
       
       const where: any = {};
       
@@ -96,6 +99,10 @@ const quotationController = {
       
       if (region_id) {
         where.region_id = region_id;
+      }
+      
+      if (warehouse_id) {
+        where.warehouse_id = warehouse_id;
       }
       
       if (weight) {
@@ -118,36 +125,37 @@ const quotationController = {
         include: [
           { model: Carrier, as: 'carrier' },
           { model: LogisticsMethod, as: 'logistics_method' },
-          { model: Region, as: 'region' }
+          { model: Region, as: 'region' },
+          { model: Warehouse, as: 'warehouse' }
         ],
         order: [['create_time', 'DESC']],
       });
       
       res.status(200).json({ status: 'success', data: quotations });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: 'Failed to search quotations' });
+      res.status(500).json({ status: 'error', message: '搜索报价失败' });
     }
   },
 
   // 创建报价
   createQuotation: async (req: express.Request, res: express.Response): Promise<void> => {
     try {
-      console.log('Received createQuotation request with body:', req.body);
-      
       const { 
         carrier_id, 
         logistics_method_id, 
         region_id, 
+        warehouse_id, 
         weight_ranges, 
         discount, 
         effective_date, 
         expire_date, 
-        additional_fees 
+        additional_fees,
+        status 
       } = req.body;
       
       // 验证必填字段
-      if (!carrier_id || !logistics_method_id || !region_id || !weight_ranges || weight_ranges.length === 0 || !effective_date) {
-        res.status(400).json({ status: 'error', message: 'Required fields are missing' });
+      if (!carrier_id || !logistics_method_id || !region_id || !warehouse_id || !weight_ranges || weight_ranges.length === 0 || !effective_date) {
+        res.status(400).json({ status: 'error', message: '必填字段缺失' });
         return;
       }
       
@@ -200,21 +208,28 @@ const quotationController = {
       // 检查承运商是否存在
       const carrier = await Carrier.findByPk(carrier_id);
       if (!carrier) {
-        res.status(400).json({ status: 'error', message: 'Carrier not found' });
+        res.status(400).json({ status: 'error', message: '未找到承运商信息' });
         return;
       }
       
       // 检查物流方式是否存在
       const logisticsMethod = await LogisticsMethod.findByPk(logistics_method_id);
       if (!logisticsMethod) {
-        res.status(400).json({ status: 'error', message: 'Logistics method not found' });
+        res.status(400).json({ status: 'error', message: '未找到物流方式信息' });
         return;
       }
       
       // 检查区域是否存在
       const region = await Region.findByPk(region_id);
       if (!region) {
-        res.status(400).json({ status: 'error', message: 'Region not found' });
+        res.status(400).json({ status: 'error', message: '未找到区域信息' });
+        return;
+      }
+      
+      // 检查仓库是否存在
+      const warehouse = await Warehouse.findByPk(warehouse_id);
+      if (!warehouse) {
+        res.status(400).json({ status: 'error', message: '未找到仓库信息' });
         return;
       }
       
@@ -223,6 +238,7 @@ const quotationController = {
         carrier_id,
         logistics_method_id,
         region_id,
+        warehouse_id,
         discount: discount || 1.00,
         effective_date,
         expire_date,
@@ -230,7 +246,6 @@ const quotationController = {
       });
       
       // 创建报价重量范围
-      console.log('Creating weight ranges with data:', weight_ranges);
       for (const range of weight_ranges) {
         const parsedRange = {
           quotation_id: quotation.id,
@@ -240,7 +255,6 @@ const quotationController = {
           additional_weight: parseFloat(range.additional_weight || '0'),
           additional_weight_price: parseFloat(range.additional_weight_price || '0'),
         };
-        console.log('Parsed range before creation:', parsedRange);
         await QuotationWeightRange.create(parsedRange);
       }
       
@@ -266,6 +280,7 @@ const quotationController = {
           { model: Carrier, attributes: ['id', 'name'], as: 'carrier' },
           { model: LogisticsMethod, attributes: ['id', 'name'], as: 'logistics_method' },
           { model: Region, attributes: ['id', 'name'], as: 'region' },
+          { model: Warehouse, attributes: ['id', 'name', 'code'], as: 'warehouse' },
           { model: QuotationWeightRange, as: 'quotation_weight_ranges' }
         ],
       });
@@ -275,7 +290,7 @@ const quotationController = {
       console.error('创建报价失败:', error);
       res.status(500).json({ 
         status: 'error', 
-        message: 'Failed to create quotation',
+        message: '创建报价失败',
         error: error instanceof Error ? error.message : String(error)
       });
     }
@@ -289,17 +304,19 @@ const quotationController = {
         carrier_id, 
         logistics_method_id, 
         region_id, 
+        warehouse_id, 
         weight_ranges, 
         discount, 
         effective_date, 
         expire_date, 
-        additional_fees 
+        additional_fees,
+        status 
       } = req.body;
       
       // 检查报价是否存在
       const quotation = await Quotation.findByPk(id);
       if (!quotation) {
-        res.status(404).json({ status: 'error', message: 'Quotation not found' });
+        res.status(404).json({ status: 'error', message: '未找到报价信息' });
         return;
       }
       
@@ -307,7 +324,7 @@ const quotationController = {
       if (carrier_id) {
         const carrier = await Carrier.findByPk(carrier_id);
         if (!carrier) {
-          res.status(400).json({ status: 'error', message: 'Carrier not found' });
+          res.status(400).json({ status: 'error', message: '未找到承运商信息' });
           return;
         }
       }
@@ -316,7 +333,7 @@ const quotationController = {
       if (logistics_method_id) {
         const logisticsMethod = await LogisticsMethod.findByPk(logistics_method_id);
         if (!logisticsMethod) {
-          res.status(400).json({ status: 'error', message: 'Logistics method not found' });
+          res.status(400).json({ status: 'error', message: '未找到物流方式信息' });
           return;
         }
       }
@@ -325,7 +342,16 @@ const quotationController = {
       if (region_id) {
         const region = await Region.findByPk(region_id);
         if (!region) {
-          res.status(400).json({ status: 'error', message: 'Region not found' });
+          res.status(400).json({ status: 'error', message: '未找到区域信息' });
+          return;
+        }
+      }
+      
+      // 检查仓库是否存在
+      if (warehouse_id) {
+        const warehouse = await Warehouse.findByPk(warehouse_id);
+        if (!warehouse) {
+          res.status(400).json({ status: 'error', message: '未找到仓库信息' });
           return;
         }
       }
@@ -380,14 +406,17 @@ const quotationController = {
       }
       
       // 更新报价基本信息
-      await quotation.update({
-        carrier_id,
-        logistics_method_id,
-        region_id,
-        discount,
-        effective_date,
-        expire_date,
-      });
+      // 确保所有必填字段都有值
+      const updateData: any = {};
+      if (carrier_id !== undefined && carrier_id !== '') updateData.carrier_id = carrier_id;
+      if (logistics_method_id !== undefined && logistics_method_id !== '') updateData.logistics_method_id = logistics_method_id;
+      if (region_id !== undefined && region_id !== '') updateData.region_id = region_id;
+      if (warehouse_id !== undefined && warehouse_id !== '') updateData.warehouse_id = warehouse_id;
+      if (discount !== undefined) updateData.discount = discount;
+      if (effective_date !== undefined) updateData.effective_date = effective_date;
+      if (expire_date !== undefined) updateData.expire_date = expire_date;
+      
+      await quotation.update(updateData);
       
       // 更新报价重量范围
       if (weight_ranges) {
@@ -433,13 +462,19 @@ const quotationController = {
           { model: Carrier, attributes: ['id', 'name'], as: 'carrier' },
           { model: LogisticsMethod, attributes: ['id', 'name'], as: 'logistics_method' },
           { model: Region, attributes: ['id', 'name'], as: 'region' },
+          { model: Warehouse, attributes: ['id', 'name', 'code'], as: 'warehouse' },
           { model: QuotationWeightRange, as: 'quotation_weight_ranges' }
         ],
       });
       
       res.status(200).json({ status: 'success', data: updatedQuotation });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: 'Failed to update quotation' });
+      console.error('更新报价失败:', error);
+      res.status(500).json({ 
+        status: 'error', 
+        message: '更新报价失败',
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   },
 
@@ -451,7 +486,7 @@ const quotationController = {
       // 检查报价是否存在
       const quotation = await Quotation.findByPk(id);
       if (!quotation) {
-        res.status(404).json({ status: 'error', message: 'Quotation not found' });
+        res.status(404).json({ status: 'error', message: '未找到报价信息' });
         return;
       }
       
@@ -461,9 +496,9 @@ const quotationController = {
       // 删除报价
       await quotation.destroy();
       
-      res.status(200).json({ status: 'success', message: 'Quotation deleted successfully' });
+      res.status(200).json({ status: 'success', message: '报价删除成功' });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: 'Failed to delete quotation' });
+      res.status(500).json({ status: 'error', message: '删除报价失败' });
     }
   },
 
@@ -476,7 +511,7 @@ const quotationController = {
       // 检查报价是否存在
       const quotation = await Quotation.findByPk(id);
       if (!quotation) {
-        res.status(404).json({ status: 'error', message: 'Quotation not found' });
+        res.status(404).json({ status: 'error', message: '未找到报价信息' });
         return;
       }
       
@@ -485,7 +520,7 @@ const quotationController = {
       
       res.status(200).json({ status: 'success', data: quotation });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: 'Failed to update quotation status' });
+      res.status(500).json({ status: 'error', message: '更新报价状态失败' });
     }
   },
 
@@ -494,9 +529,9 @@ const quotationController = {
     try {
       // 这里需要实现Excel导入功能，使用multer处理文件上传，使用SheetJS解析Excel文件
       // 由于这是一个示例，我们先返回一个占位符响应
-      res.status(200).json({ status: 'success', message: 'Quotations imported successfully' });
+      res.status(200).json({ status: 'success', message: '报价导入成功' });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: 'Failed to import quotations' });
+      res.status(500).json({ status: 'error', message: '报价导入失败' });
     }
   },
 
@@ -505,9 +540,9 @@ const quotationController = {
     try {
       // 这里需要实现Excel导出功能，使用SheetJS生成Excel文件
       // 由于这是一个示例，我们先返回一个占位符响应
-      res.status(200).json({ status: 'success', message: 'Quotations exported successfully' });
+      res.status(200).json({ status: 'success', message: '报价导出成功' });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: 'Failed to export quotations' });
+      res.status(500).json({ status: 'error', message: '报价导出失败' });
     }
   },
 };

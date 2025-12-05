@@ -8,6 +8,7 @@ const db_1 = __importDefault(require("../utils/db"));
 const Carrier_1 = __importDefault(require("./Carrier"));
 const LogisticsMethod_1 = __importDefault(require("./LogisticsMethod"));
 const Region_1 = __importDefault(require("./Region"));
+const Warehouse_1 = __importDefault(require("./Warehouse"));
 const QuotationWeightRange_1 = __importDefault(require("./QuotationWeightRange"));
 class Quotation extends sequelize_1.Model {
 }
@@ -26,6 +27,10 @@ Quotation.init({
         allowNull: false,
     },
     region_id: {
+        type: sequelize_1.DataTypes.INTEGER,
+        allowNull: false,
+    },
+    warehouse_id: {
         type: sequelize_1.DataTypes.INTEGER,
         allowNull: false,
     },
@@ -66,6 +71,7 @@ Quotation.init({
 Quotation.belongsTo(Carrier_1.default, { foreignKey: 'carrier_id', as: 'carrier' });
 Quotation.belongsTo(LogisticsMethod_1.default, { foreignKey: 'logistics_method_id', as: 'logistics_method' });
 Quotation.belongsTo(Region_1.default, { foreignKey: 'region_id', as: 'region' });
+Quotation.belongsTo(Warehouse_1.default, { foreignKey: 'warehouse_id', as: 'warehouse' });
 Quotation.hasMany(QuotationWeightRange_1.default, { foreignKey: 'quotation_id', as: 'quotation_weight_ranges' });
 exports.default = Quotation;
 //# sourceMappingURL=Quotation.js.map

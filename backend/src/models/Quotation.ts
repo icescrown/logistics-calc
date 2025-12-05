@@ -3,6 +3,7 @@ import sequelize from '../utils/db';
 import Carrier from './Carrier';
 import LogisticsMethod from './LogisticsMethod';
 import Region from './Region';
+import Warehouse from './Warehouse';
 import QuotationWeightRange from './QuotationWeightRange';
 
 class Quotation extends Model {
@@ -10,6 +11,7 @@ class Quotation extends Model {
   public carrier_id!: number;
   public logistics_method_id!: number;
   public region_id!: number;
+  public warehouse_id!: number;
   public discount!: number;
   public effective_date!: Date;
   public expire_date!: Date;
@@ -34,6 +36,10 @@ Quotation.init(
       allowNull: false,
     },
     region_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    warehouse_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
@@ -76,6 +82,7 @@ Quotation.init(
 Quotation.belongsTo(Carrier, { foreignKey: 'carrier_id', as: 'carrier' });
 Quotation.belongsTo(LogisticsMethod, { foreignKey: 'logistics_method_id', as: 'logistics_method' });
 Quotation.belongsTo(Region, { foreignKey: 'region_id', as: 'region' });
+Quotation.belongsTo(Warehouse, { foreignKey: 'warehouse_id', as: 'warehouse' });
 Quotation.hasMany(QuotationWeightRange, { foreignKey: 'quotation_id', as: 'quotation_weight_ranges' });
 
 export default Quotation;

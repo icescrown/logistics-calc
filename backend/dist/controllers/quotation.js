@@ -8,6 +8,7 @@ const Quotation_1 = __importDefault(require("../models/Quotation"));
 const Carrier_1 = __importDefault(require("../models/Carrier"));
 const LogisticsMethod_1 = __importDefault(require("../models/LogisticsMethod"));
 const Region_1 = __importDefault(require("../models/Region"));
+const Warehouse_1 = __importDefault(require("../models/Warehouse"));
 const AdditionalFee_1 = __importDefault(require("../models/AdditionalFee"));
 const QuotationAdditionalFee_1 = __importDefault(require("../models/QuotationAdditionalFee"));
 const QuotationWeightRange_1 = __importDefault(require("../models/QuotationWeightRange"));
@@ -30,6 +31,7 @@ const quotationController = {
                     { model: Carrier_1.default, attributes: ['id', 'name'], as: 'carrier' },
                     { model: LogisticsMethod_1.default, attributes: ['id', 'name'], as: 'logistics_method' },
                     { model: Region_1.default, attributes: ['id', 'name'], as: 'region' },
+                    { model: Warehouse_1.default, attributes: ['id', 'name', 'code'], as: 'warehouse' },
                     { model: QuotationWeightRange_1.default, as: 'quotation_weight_ranges' }
                 ],
                 order: [['create_time', 'DESC']],
@@ -60,6 +62,7 @@ const quotationController = {
                     { model: Carrier_1.default, as: 'carrier' },
                     { model: LogisticsMethod_1.default, as: 'logistics_method' },
                     { model: Region_1.default, as: 'region' },
+                    { model: Warehouse_1.default, as: 'warehouse' },
                     {
                         model: QuotationAdditionalFee_1.default,
                         as: 'quotation_additional_fees',
@@ -81,7 +84,7 @@ const quotationController = {
     // 根据条件获取报价
     searchQuotations: async (req, res) => {
         try {
-            const { carrier_id, logistics_method_id, region_id, weight, volume, effective_date } = req.query;
+            const { carrier_id, logistics_method_id, region_id, warehouse_id, weight, volume, effective_date } = req.query;
             const where = {};
             if (carrier_id) {
                 where.carrier_id = carrier_id;
@@ -91,6 +94,9 @@ const quotationController = {
             }
             if (region_id) {
                 where.region_id = region_id;
+            }
+            if (warehouse_id) {
+                where.warehouse_id = warehouse_id;
             }
             if (weight) {
                 where.weight_from = { [sequelize_1.Op.lte]: weight };
@@ -109,7 +115,8 @@ const quotationController = {
                 include: [
                     { model: Carrier_1.default, as: 'carrier' },
                     { model: LogisticsMethod_1.default, as: 'logistics_method' },
-                    { model: Region_1.default, as: 'region' }
+                    { model: Region_1.default, as: 'region' },
+                    { model: Warehouse_1.default, as: 'warehouse' }
                 ],
                 order: [['create_time', 'DESC']],
             });
@@ -123,9 +130,9 @@ const quotationController = {
     createQuotation: async (req, res) => {
         try {
             console.log('Received createQuotation request with body:', req.body);
-            const { carrier_id, logistics_method_id, region_id, weight_ranges, discount, effective_date, expire_date, additional_fees } = req.body;
+            const { carrier_id, logistics_method_id, region_id, warehouse_id, weight_ranges, discount, effective_date, expire_date, additional_fees } = req.body;
             // 验证必填字段
-            if (!carrier_id || !logistics_method_id || !region_id || !weight_ranges || weight_ranges.length === 0 || !effective_date) {
+            if (!carrier_id || !logistics_method_id || !region_id || !warehouse_id || !weight_ranges || weight_ranges.length === 0 || !effective_date) {
                 res.status(400).json({ status: 'error', message: 'Required fields are missing' });
                 return;
             }
@@ -187,11 +194,18 @@ const quotationController = {
                 res.status(400).json({ status: 'error', message: 'Region not found' });
                 return;
             }
+            // 检查仓库是否存在
+            const warehouse = await Warehouse_1.default.findByPk(warehouse_id);
+            if (!warehouse) {
+                res.status(400).json({ status: 'error', message: 'Warehouse not found' });
+                return;
+            }
             // 创建报价
             const quotation = await Quotation_1.default.create({
                 carrier_id,
                 logistics_method_id,
                 region_id,
+                warehouse_id,
                 discount: discount || 1.00,
                 effective_date,
                 expire_date,
@@ -232,6 +246,7 @@ const quotationController = {
                     { model: Carrier_1.default, attributes: ['id', 'name'], as: 'carrier' },
                     { model: LogisticsMethod_1.default, attributes: ['id', 'name'], as: 'logistics_method' },
                     { model: Region_1.default, attributes: ['id', 'name'], as: 'region' },
+                    { model: Warehouse_1.default, attributes: ['id', 'name', 'code'], as: 'warehouse' },
                     { model: QuotationWeightRange_1.default, as: 'quotation_weight_ranges' }
                 ],
             });
@@ -250,7 +265,7 @@ const quotationController = {
     updateQuotation: async (req, res) => {
         try {
             const { id } = req.params;
-            const { carrier_id, logistics_method_id, region_id, weight_ranges, discount, effective_date, expire_date, additional_fees } = req.body;
+            const { carrier_id, logistics_method_id, region_id, warehouse_id, weight_ranges, discount, effective_date, expire_date, additional_fees } = req.body;
             // 检查报价是否存在
             const quotation = await Quotation_1.default.findByPk(id);
             if (!quotation) {
@@ -278,6 +293,14 @@ const quotationController = {
                 const region = await Region_1.default.findByPk(region_id);
                 if (!region) {
                     res.status(400).json({ status: 'error', message: 'Region not found' });
+                    return;
+                }
+            }
+            // 检查仓库是否存在
+            if (warehouse_id) {
+                const warehouse = await Warehouse_1.default.findByPk(warehouse_id);
+                if (!warehouse) {
+                    res.status(400).json({ status: 'error', message: 'Warehouse not found' });
                     return;
                 }
             }
@@ -329,6 +352,7 @@ const quotationController = {
                 carrier_id,
                 logistics_method_id,
                 region_id,
+                warehouse_id,
                 discount,
                 effective_date,
                 expire_date,
@@ -373,6 +397,7 @@ const quotationController = {
                     { model: Carrier_1.default, attributes: ['id', 'name'], as: 'carrier' },
                     { model: LogisticsMethod_1.default, attributes: ['id', 'name'], as: 'logistics_method' },
                     { model: Region_1.default, attributes: ['id', 'name'], as: 'region' },
+                    { model: Warehouse_1.default, attributes: ['id', 'name', 'code'], as: 'warehouse' },
                     { model: QuotationWeightRange_1.default, as: 'quotation_weight_ranges' }
                 ],
             });

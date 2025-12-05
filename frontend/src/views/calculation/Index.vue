@@ -217,7 +217,7 @@
             <div class="plan-details">
               <el-descriptions :column="3" border>
                 <el-descriptions-item label="基础价格">¥{{ recommendedPlan.base_price.toFixed(2) }}</el-descriptions-item>
-                <el-descriptions-item label="折扣">{{ (recommendedPlan.discount * 100).toFixed(0) }}折</el-descriptions-item>
+                <el-descriptions-item label="折扣">{{ (recommendedPlan.discount * 100).toFixed(0) }}%</el-descriptions-item>
                 <el-descriptions-item label="折扣后价格">¥{{ (recommendedPlan.base_price * recommendedPlan.discount).toFixed(2) }}</el-descriptions-item>
                 <el-descriptions-item label="货物重量">{{ recommendedPlan.weight }} kg</el-descriptions-item>
                 <el-descriptions-item label="货物体积">{{ recommendedPlan.volume }} m³</el-descriptions-item>
@@ -243,7 +243,7 @@
               <template #default="scope">¥{{ scope.row.base_price.toFixed(2) }}</template>
             </el-table-column>
             <el-table-column prop="discount" label="折扣" width="100">
-              <template #default="scope">{{ (scope.row.discount * 100).toFixed(0) }}折</template>
+              <template #default="scope">{{ (scope.row.discount * 100).toFixed(0) }}%</template>
             </el-table-column>
             <el-table-column prop="total_price" label="总价格" width="120" sortable>
               <template #default="scope">
@@ -285,7 +285,7 @@
         
         <el-descriptions :column="2" border>
           <el-descriptions-item label="基础价格">¥{{ selectedPlan.base_price.toFixed(2) }}</el-descriptions-item>
-          <el-descriptions-item label="折扣">{{ (selectedPlan.discount * 100).toFixed(0) }}折</el-descriptions-item>
+          <el-descriptions-item label="折扣">{{ (selectedPlan.discount * 100).toFixed(0) }}%</el-descriptions-item>
           <el-descriptions-item label="折扣后价格" :span="2">¥{{ (selectedPlan.base_price * selectedPlan.discount).toFixed(2) }}</el-descriptions-item>
         </el-descriptions>
         

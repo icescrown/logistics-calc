@@ -21,87 +21,59 @@ const calculationController = {
       
       // 验证必填字段
       if (!warehouse_id || !weight || !volume || !country || !city || !postal_code) {
-        res.status(400).json({ status: 'error', message: 'Required fields are missing' });
+        res.status(400).json({ status: 'error', message: '必填字段缺失' });
         return;
       }
       
-      // 获取目标区域列表
-      let regionIds: number[] = [];
-      
-      // 1. 国家匹配逻辑优化
-      // 预处理用户输入的国家信息，去除空格并转换为大写
+      // 1. 严格执行国家有效性验证流程
+      // 预处理用户输入的国家信息，去除空格并转换为大写，确保匹配准确性
       const processedCountry = country.trim().toUpperCase();
       
-      // 先查询所有匹配的国家记录，支持国家代码、ISO代码和国家名称
+      // 1.1 首先验证国家是否存在
+      let countryRecord: Country | undefined;
+      
+      // 尝试通过国家名称、国家代码和ISO代码匹配国家
       const matchedCountries = await Country.findAll({
         where: {
           [Op.or]: [
             // 国家名称匹配（最精确）
             { 
-              name: {
-                [Op.or]: [
-                  { [Op.eq]: processedCountry },
-                  { [Op.eq]: country.trim() }
-                ]
-              }
+              name: { [Op.or]: [
+                { [Op.eq]: processedCountry },
+                { [Op.eq]: country.trim() }
+              ]}
             },
             // 国家代码匹配
             { 
-              code: {
-                [Op.or]: [
-                  { [Op.eq]: processedCountry },
-                  { [Op.eq]: country.trim().toUpperCase() }
-                ]
-              }
+              code: { [Op.or]: [
+                { [Op.eq]: processedCountry },
+                { [Op.eq]: country.trim().toUpperCase() }
+              ]}
             },
             // ISO代码匹配
             { 
-              iso_code: {
-                [Op.or]: [
-                  { [Op.eq]: processedCountry },
-                  { [Op.eq]: country.trim().toUpperCase() }
-                ]
-              }
+              iso_code: { [Op.or]: [
+                { [Op.eq]: processedCountry },
+                { [Op.eq]: country.trim().toUpperCase() }
+              ]}
             }
           ],
           status: 1
         }
       });
       
-      // 如果没有找到匹配的国家，返回空的物流方案
+      // 如果没有找到匹配的国家，返回错误信息
       if (matchedCountries.length === 0) {
-        const responseData = {
-          logistics_plans: [],
-          recommended_plan: null,
-          address_info: {
-            country,
-            province,
-            city,
-            street,
-            detail_address,
-            postal_code
-          },
-          calculation_info: {
-            weight: parseFloat(weight),
-            volume: parseFloat(volume),
-            insurance_needed: insurance_needed || false,
-            declared_value: declared_value ? parseFloat(declared_value) : 0,
-            matched_region_count: 0,
-            matched_plan_count: 0
-          },
-          error: '未找到匹配的国家信息，请检查输入的国家名称或代码是否正确'
-        };
-        
-        res.status(200).json({
-          status: 'success',
-          data: responseData,
+        res.status(400).json({
+          status: 'error',
+          message: '未找到匹配的国家信息，请检查输入的国家名称或代码是否正确'
         });
         return;
       }
       
       // 选择最优匹配结果
       // 优先级：1. 国家名称完全匹配 2. 国家代码完全匹配 3. ISO代码完全匹配
-      let countryRecord = matchedCountries[0];
+      countryRecord = matchedCountries[0];
       for (const record of matchedCountries) {
         // 精确匹配国家名称（最优先）
         if (record.name.toUpperCase() === processedCountry || record.name === country.trim()) {
@@ -120,41 +92,54 @@ const calculationController = {
         }
       }
       
-      // 确保countryRecord不为undefined
       if (!countryRecord) {
-        const responseData = {
-          logistics_plans: [],
-          recommended_plan: null,
-          address_info: {
-            country,
-            province,
-            city,
-            street,
-            detail_address,
-            postal_code
-          },
-          calculation_info: {
-            weight: parseFloat(weight),
-            volume: parseFloat(volume),
-            insurance_needed: insurance_needed || false,
-            declared_value: declared_value ? parseFloat(declared_value) : 0,
-            matched_region_count: 0,
-            matched_plan_count: 0
-          },
-          error: '未找到匹配的国家信息，请检查输入的国家名称或代码是否正确'
-        };
-        
-        res.status(200).json({
-          status: 'success',
-          data: responseData,
+        res.status(400).json({
+          status: 'error',
+          message: '未找到匹配的国家信息，请检查输入的国家名称或代码是否正确'
+        });
+        return;
+      }
+      
+      // 优化1：在进行国家和区域匹配之前，先获取该仓库的所有有效报价
+      // 这样可以避免不必要的计算和资源浪费
+      const warehouseQuotations = await Quotation.findAll({
+        where: {
+          status: 1,
+          warehouse_id: warehouse_id,
+          effective_date: { [Op.lte]: new Date() },
+          expire_date: { [Op.or]: [{ [Op.gte]: new Date() }, { [Op.is]: null }] },
+        },
+        attributes: ['region_id']
+      });
+      
+      // 如果该仓库没有有效报价，立即终止流程
+      if (warehouseQuotations.length === 0) {
+        res.status(400).json({
+          status: 'error',
+          message: `仓库 ${warehouse_id} 没有有效的报价配置，无法计算物流费用。请联系系统管理员检查报价配置。`
+        });
+        return;
+      }
+      
+      // 优化2：获取该仓库报价关联的所有区域ID
+      // 这样可以只匹配该仓库报价关联的区域，避免匹配无关区域
+      const warehouseRegionIds = [...new Set(warehouseQuotations.map(q => q.region_id))];
+      
+      // 如果该仓库没有关联任何区域，立即终止流程
+      if (warehouseRegionIds.length === 0) {
+        res.status(400).json({
+          status: 'error',
+          message: `仓库 ${warehouse_id} 的报价没有关联任何区域，无法计算物流费用。请联系系统管理员检查报价配置。`
         });
         return;
       }
       
       const countryId = countryRecord.id;
-      console.log(`[DEBUG] 国家匹配成功: ${country} -> ${countryRecord.name} (ID: ${countryId})`);
       
-      // 获取与当前国家关联的所有区域，并按类型排序，优先处理"邮编"类型的区域
+      // 1.2 验证国家是否存在于区域管理配置的关联国家列表中
+      
+      // 优化3：查询所有关联了该国家且属于该仓库有效区域的区域
+      // 只获取该仓库报价关联的区域，避免匹配无关区域
       const countryRegions = await Region.findAll({
         include: [
           {
@@ -163,16 +148,42 @@ const calculationController = {
             where: {
               id: countryId,
               status: 1
-            }
+            },
+            // 明确指定中间表，确保查询结果准确
+            through: {
+              // 使用已导入的RegionCountry中间表，只需要基础关联
+            },
+            // 限制只获取必要的字段，提高查询效率
+            attributes: ['id', 'name', 'code']
           }
         ],
-        where: { status: 1 },
-        order: [['type', 'DESC']] // 优先处理"邮编"类型的区域
+        where: { 
+          status: 1,
+          id: { [Op.in]: warehouseRegionIds } // 只查询该仓库报价关联的区域
+        },
+        // 限制只获取必要的字段，提高查询效率
+        attributes: ['id', 'name', 'code', 'type']
       });
       
-      console.log(`[DEBUG] Regions associated with country ${country} (ID: ${countryId}): ${countryRegions.length} records`);
-      countryRegions.forEach(region => {
-        console.log(`[DEBUG]   - ${region.name} (${region.id}), Type: ${region.type}`);
+      // 2. 严格执行前置验证机制
+      // 若收件国家未通过验证，立即终止费用计算流程
+      if (countryRegions.length === 0) {
+        res.status(400).json({
+          status: 'error',
+          message: `当前仓库暂不支持发往 [${country}] 的物流服务`
+        });
+        return;
+      }
+      
+      // 获取目标区域列表
+      let regionIds: number[] = [];
+      
+      // 按类型排序，优先处理"邮编"类型的区域
+      countryRegions.sort((a, b) => {
+        // 让"邮编"类型的区域排在前面
+        if (a.type === '邮编' || a.type === 'postal_code' || a.type === 'zipcode') return -1;
+        if (b.type === '邮编' || b.type === 'postal_code' || b.type === 'zipcode') return 1;
+        return 0;
       });
       
       // 2. 邮编匹配逻辑优化
@@ -189,8 +200,6 @@ const calculationController = {
           !ZIP_REGION_TYPES.includes(region.type.toLowerCase())
         );
         
-        console.log(`[DEBUG] 区域分类: 邮编类型区域 ${zipRegions.length} 个, 其他类型区域 ${otherRegions.length} 个`);
-        
         // 标记是否已经匹配到邮编类型的区域
         let hasMatchedZipRegion = false;
         
@@ -199,44 +208,39 @@ const calculationController = {
         
         // 1. 先处理邮编类型的区域
         if (zipRegions.length > 0 && processedPostalCode) {
-          console.log(`[DEBUG] 开始处理邮编类型区域，邮编: ${processedPostalCode}`);
-          
           for (const region of zipRegions) {
-            console.log(`[DEBUG]   处理区域: ${region.name} (ID: ${region.id}), 类型: ${region.type}`);
-            
             // 获取该区域关联的所有邮编记录，限定当前国家
-            const regionPostalCodes = await PostalCode.findAll({
-              include: [
-                {
-                  model: Region,
-                  as: 'regions',
-                  where: {
-                    id: region.id,
-                    status: 1
-                  }
-                }
-              ],
+            // 先查询中间表获取与该区域关联的邮编ID
+            const regionPostalCodeRelations = await RegionPostalCode.findAll({
               where: {
-                status: 1,
-                country_id: countryId
+                region_id: region.id
               }
             });
             
-            console.log(`[DEBUG]     区域关联的邮编记录数量: ${regionPostalCodes.length} 个`);
+            // 提取邮编ID列表
+            const postalCodeIds = regionPostalCodeRelations.map(relation => relation.postal_code_id);
+            
+            // 查询对应的邮编记录
+            // 注意：这里移除了country_id条件，因为RegionPostalCode中间表已经确保了区域和邮编的关联
+            // 不同国家可能有相同的邮编格式，应该允许跨国家匹配
+            const regionPostalCodes = await PostalCode.findAll({
+              where: {
+                id: postalCodeIds,
+                status: 1
+              }
+            });
             
             // 验证邮编是否匹配
             let isPostalCodeMatched = false;
             
             for (const pcRecord of regionPostalCodes) {
               const pattern = pcRecord.code;
-              console.log(`[DEBUG]     测试邮编模式: ${pattern}`);
               
               // 预处理模式，去除空格并转换为大写
               const processedPattern = pattern.trim().toUpperCase();
               
               // 精确匹配（最优先）
               if (processedPattern === processedPostalCode) {
-                console.log(`[DEBUG]     - 精确匹配: 成功`);
                 isPostalCodeMatched = true;
                 break;
               }
@@ -246,9 +250,7 @@ const calculationController = {
                 // 构建正则表达式，处理通配符
                 const regexPattern = `^${processedPattern.replace(/\*/g, '.*')}$`;
                 const regex = new RegExp(regexPattern, 'i'); // 不区分大小写
-                const matchResult = regex.test(processedPostalCode);
-                console.log(`[DEBUG]     - 通配符匹配: ${matchResult ? '成功' : '失败'}, 正则: ${regexPattern}`);
-                if (matchResult) {
+                if (regex.test(processedPostalCode)) {
                   isPostalCodeMatched = true;
                   break;
                 }
@@ -260,33 +262,30 @@ const calculationController = {
                 const min = minStr?.trim() || '';
                 const max = maxStr?.trim() || '';
                 
-                if (min && max) {
-                  const matchResult = processedPostalCode >= min && processedPostalCode <= max;
-                  console.log(`[DEBUG]     - 范围匹配: ${matchResult ? '成功' : '失败'}, 范围: ${min} - ${max}`);
-                  if (matchResult) {
-                    isPostalCodeMatched = true;
-                    break;
-                  }
+                if (min && max && processedPostalCode >= min && processedPostalCode <= max) {
+                  isPostalCodeMatched = true;
+                  break;
                 }
+              }
+              
+              // 新增：如果区域类型是邮编，但没有设置具体邮编，或者邮编为空，也视为匹配成功
+              // 这种情况适用于整个国家或地区都适用的区域
+              if (!processedPattern || processedPattern === '' || processedPattern === '*') {
+                isPostalCodeMatched = true;
+                break;
               }
             }
             
             if (isPostalCodeMatched) {
-              console.log(`[DEBUG]     邮编匹配成功，添加区域: ${region.name} (ID: ${region.id})`);
               regionIds.push(region.id);
               hasMatchedZipRegion = true;
-            } else {
-              console.log(`[DEBUG]     该区域的所有邮编模式均不匹配`);
             }
           }
         }
         
         // 2. 只有当没有匹配到邮编类型的区域时，才处理其他类型的区域
         if (!hasMatchedZipRegion && otherRegions.length > 0) {
-          console.log(`[DEBUG] 没有匹配到邮编类型的区域，开始处理其他类型区域`);
-          
           for (const region of otherRegions) {
-            console.log(`[DEBUG]   添加其他类型区域: ${region.name} (ID: ${region.id}), 类型: ${region.type}`);
             regionIds.push(region.id);
           }
         }
@@ -317,7 +316,7 @@ const calculationController = {
             matched_region_count: regionIds.length,
             matched_plan_count: 0
           },
-          error: 'No matching region found for the provided address'
+          error: `未找到匹配的区域配置`
         };
         
         res.status(200).json({
@@ -330,6 +329,7 @@ const calculationController = {
       // 构建查询条件
       const quotationWhere: any = {
         status: 1,
+        warehouse_id: warehouse_id,
         effective_date: { [Op.lte]: new Date() },
         expire_date: { [Op.or]: [{ [Op.gte]: new Date() }, { [Op.is]: null }] },
       };
@@ -354,6 +354,37 @@ const calculationController = {
           // 这里暂时不包含QuotationWeightRange，因为需要先查询符合条件的报价，再处理重量范围
         ],
       });
+      
+      // 如果没有符合条件的报价，立即终止流程
+      if (quotations.length === 0) {
+        const responseData = {
+          logistics_plans: [],
+          recommended_plan: null,
+          address_info: {
+            country,
+            province,
+            city,
+            street,
+            detail_address,
+            postal_code
+          },
+          calculation_info: {
+            weight: parseFloat(weight),
+            volume: parseFloat(volume),
+            insurance_needed: insurance_needed || false,
+            declared_value: declared_value ? parseFloat(declared_value) : 0,
+            matched_region_count: regionIds.length,
+            matched_plan_count: 0
+          },
+          error: `没有找到符合条件的报价配置。仓库: ${warehouse_id}, 区域: ${regionIds.join(', ')}, 重量: ${weight}`
+        };
+        
+        res.status(200).json({
+          status: 'success',
+          data: responseData,
+        });
+        return;
+      }
       
       // 计算每个报价的总价格
       const logisticsPlans: any[] = [];
@@ -494,8 +525,8 @@ const calculationController = {
         data: responseData,
       });
     } catch (error) {
-      console.error('Failed to calculate logistics plan:', error);
-      res.status(500).json({ status: 'error', message: 'Failed to calculate logistics plan' });
+      console.error('计算物流方案失败:', error);
+      res.status(500).json({ status: 'error', message: '计算物流方案失败' });
     }
   },
   
@@ -506,7 +537,7 @@ const calculationController = {
       
       // 验证必填字段
       if (!quotation_id || !weight || !volume) {
-        res.status(400).json({ status: 'error', message: 'Required fields are missing' });
+        res.status(400).json({ status: 'error', message: '必填字段缺失' });
         return;
       }
       
@@ -525,7 +556,7 @@ const calculationController = {
       });
       
       if (!quotation) {
-        res.status(404).json({ status: 'error', message: 'Quotation not found' });
+        res.status(404).json({ status: 'error', message: '未找到报价信息' });
         return;
       }
       
@@ -542,7 +573,7 @@ const calculationController = {
       });
       
       if (!matchingWeightRange) {
-        res.status(404).json({ status: 'error', message: 'No matching weight range found' });
+        res.status(404).json({ status: 'error', message: '未找到匹配的重量范围' });
         return;
       }
       
@@ -612,8 +643,8 @@ const calculationController = {
       
       res.status(200).json({ status: 'success', data: priceDetail });
     } catch (error) {
-      console.error('Failed to get price detail:', error);
-      res.status(500).json({ status: 'error', message: 'Failed to get price detail' });
+      console.error('获取价格明细失败:', error);
+      res.status(500).json({ status: 'error', message: '获取价格明细失败' });
     }
   },
 };
